@@ -132,6 +132,7 @@ let toastTimer = null;
 const COMMAND_ERRORS = {
   no_active_device: "操作できる端末がありません。Spotify アプリで一度再生してください",
   premium_required: "再生制御には Spotify Premium が必要です",
+  insufficient_scope: "権限が不足しています。token_store.json を削除して再ログインしてください",
 };
 
 function showToast(message) {
@@ -166,7 +167,9 @@ function setButtonsEnabled(enabled) {
 async function runCommand(action) {
   setButtonsEnabled(false);
   try {
-    const result = await NowPlayingSource.sendCommand(action);
+    const result = await withDevice((deviceId) =>
+      NowPlayingSource.sendCommand(action, deviceId)
+    );
 
     if (result.status === "login") {
       showToast("ログインが必要です");
@@ -264,11 +267,13 @@ async function fetchNowPlaying() {
       clearTrackDetails();
       showLoginBox(true);
       controlsEl.hidden = true;
+      setTabsVisible(false); // 未ログインではプレイリストも使えない
       return;
     }
 
     showLoginBox(false);
     controlsEl.hidden = false;
+    setTabsVisible(true);
 
     if (result.status === "error") {
       statusEl.textContent = "取得エラー";

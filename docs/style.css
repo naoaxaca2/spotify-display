@@ -36,12 +36,93 @@ html, body {
 .card {
   width: 100%;
   height: 100%;
-  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  position: relative;
   background:
     linear-gradient(135deg, #161616 0%, #101010 60%, #0a0a0a 100%);
+}
+
+/* ---- タブ ---- */
+.tabs {
+  flex: 0 0 auto;
+  display: flex;
+  border-bottom: 1px solid rgba(255,255,255,0.14);
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #6f6f6f;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: color 0.12s ease;
+}
+
+/* アイコンは currentColor で塗るので、状態は色だけで切り替わる */
+.tab svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.tab.is-active {
+  color: #1ed760;
+  border-bottom-color: #1ed760;
+}
+
+.tab:active { color: #f5f5f5; }
+
+/* ---- 画面の入れ物 ---- */
+.views {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.view {
+  display: none;
+  width: 100%;
+  height: 100%;
+}
+
+.view.is-active {
+  display: flex;
+}
+
+#view-now {
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+#view-playlists {
+  flex-direction: column;
+  min-height: 0;
+  /* 表示方法とスクロール方向で使い回す寸法 */
+  --pl-row-h: 62px;
+  --pl-col-w: 330px;
+  --pl-cover: 84px;
+  --pl-cell: 96px;
+}
+
+#view-settings {
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 曲一覧は一覧画面と作りが似ているので、背景で階層の違いを示す */
+#pl-tracks-pane {
+  background: #111625;
 }
 
 .top-row {
@@ -232,15 +313,86 @@ button.login-button {
 @media (min-aspect-ratio: 3/1) {
   .card {
     flex-direction: row;
+  }
+
+  /* タブは左端に縦積み。480px しかない縦を圧迫しない */
+  .tabs {
+    flex-direction: column;
+    width: 84px;
+    border-bottom: 0;
+    border-right: 1px solid rgba(255,255,255,0.14);
+  }
+
+  .tab {
+    border-bottom: 0;
+    border-right: 3px solid transparent;
+  }
+
+  .tab svg { width: 32px; height: 32px; }
+
+  .tab.is-active {
+    border-bottom-color: transparent;
+    border-right-color: #1ed760;
+  }
+
+  /* 帯型では Grid に切り替える。
+   *   左列  : ジャケット + アルバム情報（2行ぶち抜き）
+   *   右上段: 曲名（右側の全幅を使う）
+   *   右下段: ボタン → KEY/TIME の順に左詰め
+   * 右端に縦列を作らないことで、曲名の表示幅を最大化する。
+   * 下段を左詰めにすると、画面幅が変わってもボタンの位置が動かない。 */
+  #view-now {
+    grid-template-columns: auto auto 1fr;
+    grid-template-rows: 1fr auto;
     align-items: center;
-    gap: 24px;
+    column-gap: 24px;
+    row-gap: 12px;
     padding: 16px 24px;
   }
 
-  /* 左：ジャケット + アルバム情報 */
+  /* display は必ず .is-active と併せて指定する。
+   * #view-now だけに書くと ID の詳細度が .view.is-active を上回り、
+   * 非表示にできなくなる（タブを切り替えても NOW が残る）。 */
+  #view-now.is-active {
+    display: grid;
+  }
+
+  .pl-head { padding: 12px 20px; }
+  .pl-head-title { font-size: 21px; }
+  .pl-btn { min-height: 52px; font-size: 17px; padding: 0 18px; }
+  .pl-toggle { min-height: 52px; font-size: 17px; gap: 11px; }
+  .pl-toggle-track { width: 56px; height: 32px; border-radius: 16px; }
+  .pl-toggle-knob { width: 24px; height: 24px; margin-top: -12px; left: 3px; }
+  .pl-toggle.is-on .pl-toggle-knob { transform: translateX(24px); }
+  .pl-toggle.is-on:active .pl-toggle-knob { transform: translateX(24px) scale(0.9); }
+  #view-playlists {
+    --pl-row-h: 74px;
+    --pl-col-w: 380px;
+    --pl-cover: 104px;
+    --pl-cell: 118px;
+  }
+
+  .set-scroll { padding: 18px 24px; gap: 24px; }
+  .set-label { font-size: 17px; }
+  .set-opt { min-height: 56px; font-size: 17px; padding: 6px 22px; }
+  .set-opt-sub { font-size: 14px; }
+  .set-empty { font-size: 15px; }
+  .set-note { font-size: 15px; }
+
+  .pl-row { min-height: 74px; padding: 10px 20px; gap: 16px; }
+  .pl-thumb { width: 54px; height: 54px; border-radius: 5px; }
+  .pl-thumb-empty { font-size: 23px; }
+  .pl-row-main { font-size: 20px; }
+  .pl-row-sub { font-size: 15px; }
+
+  /* 左：ジャケット + アルバム情報。区切り線はここが持つ */
   .top-row {
-    flex: 0 0 auto;
+    grid-column: 1;
+    grid-row: 1 / -1;
     gap: 20px;
+    height: 100%;
+    padding-right: 24px;
+    border-right: 1px solid rgba(255,255,255,0.14);
   }
 
   /* 高さ基準で正方形を保つ。スケールファクタを変えても追従する */
@@ -263,17 +415,18 @@ button.login-button {
   .album-artists    { font-size: 20px; }
   .release-date     { font-size: 17px; }
 
-  /* 中央：ステータス + 曲名。残り幅を全部使う */
+  /* 右上：ステータス + 曲名。右側の全幅を占有する */
   .marquee-outer {
-    flex: 1;
+    grid-column: 2 / -1;
+    grid-row: 1;
     min-width: 0;
     height: 100%;
     justify-content: center;
-    padding: 0 24px;
+    padding: 0 0 12px;
     border-top: 0;
-    border-bottom: 0;
-    border-left: 1px solid rgba(255,255,255,0.14);
-    border-right: 1px solid rgba(255,255,255,0.14);
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.14);
     gap: 14px;
   }
 
@@ -284,26 +437,30 @@ button.login-button {
 
   .marquee-track { flex: 0 0 auto; }
 
-  .marquee-inner { font-size: 52px; }
+  .marquee-inner { font-size: 58px; }
 
-  /* 右：KEY / TIME を縦に積む */
+  /* 右下：KEY / TIME。ボタンの右隣に置く */
   .bottom-row {
-    flex: 0 0 auto;
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: start;
     min-height: 0;
   }
 
   .track-details {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 14px;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 28px;
   }
 
   .detail-label { font-size: 15px; }
   .detail-value { font-size: 30px; }
 
-  /* 右端：KEY / TIME の隣に操作ボタンを並べる */
+  /* 右下：操作ボタン。区切り線のすぐ右に固定する */
   .controls {
-    flex: 0 0 auto;
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
     gap: 18px;
   }
 
@@ -313,9 +470,10 @@ button.login-button {
   .toast { bottom: 8px; font-size: 16px; }
 
   .login-box {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-self: start;
     margin-top: 0;
-    margin-left: auto;
-    align-self: center;
   }
 }
 
@@ -394,4 +552,372 @@ button.login-button {
   font-size: 14px;
   line-height: 1.4;
   text-align: center;
+}
+
+
+/* ------------------------------------------------------------------
+ * プレイリスト画面
+ * ------------------------------------------------------------------ */
+.pl-pane {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.pl-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.14);
+}
+
+.pl-head-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-btn {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+  color: #f5f5f5;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.pl-btn-accent {
+  background: #1ed760;
+  border-color: #1ed760;
+  color: #111;
+  font-weight: 700;
+}
+
+.pl-btn:active { background: rgba(255,255,255,0.18); }
+
+/* ------------------------------------------------------------------
+ * ランダム再生トグル
+ *
+ * 「まるごと再生」は押すと何かが起きるボタン、こちらは状態を表す部品。
+ * 枠と背景を持たせず、スイッチの形で役割の違いを示す。
+ * ------------------------------------------------------------------ */
+.pl-toggle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #9a9a9a;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.pl-toggle.is-on { color: #f5f5f5; }
+
+.pl-toggle-track {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 13px;
+  background: #3a3a3a;
+  border: 1px solid rgba(255,255,255,0.14);
+  transition: background 0.15s ease;
+}
+
+.pl-toggle.is-on .pl-toggle-track {
+  background: #1ed760;
+  border-color: #1ed760;
+}
+
+.pl-toggle-knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: #f5f5f5;
+  transition: transform 0.15s ease;
+}
+
+/* ON のときノブが右へ滑る。位置の違いで状態が読み取れる */
+.pl-toggle.is-on .pl-toggle-knob {
+  transform: translateX(20px);
+  background: #0b0b0b;
+}
+
+.pl-toggle:active .pl-toggle-knob { transform: scale(0.9); }
+.pl-toggle.is-on:active .pl-toggle-knob { transform: translateX(20px) scale(0.9); }
+.pl-btn-accent:active { background: #17b44f; }
+
+.pl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* タッチでの慣性スクロールと、端での画面連動を抑える */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.pl-scroll::-webkit-scrollbar { width: 6px; }
+.pl-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.22);
+  border-radius: 3px;
+}
+
+.pl-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 62px;
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: transparent;
+  color: #f5f5f5;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.pl-row:active { background: rgba(255,255,255,0.1); }
+
+/* ジャケット。Spotify の規約上、切り抜かず正方形のまま表示する */
+.pl-thumb {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  object-fit: cover;
+  background: #242424;
+}
+
+.pl-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5a5a5a;
+  font-size: 19px;
+}
+
+/* テキスト側。min-width:0 が無いと省略記号が効かない */
+.pl-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pl-row-main {
+  max-width: 100%;
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-row-sub {
+  max-width: 100%;
+  font-size: 13px;
+  color: #9a9a9a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-empty {
+  padding: 22px 16px;
+  color: #888;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+
+/* ------------------------------------------------------------------
+ * 一覧の表示方法 / スクロール方向（設定タブで切り替え）
+ * ------------------------------------------------------------------ */
+
+/* --- テキストのみ --- */
+.mode-text .pl-thumb { display: none; }
+
+/* --- ジャケットのみ --- */
+.mode-cover .pl-row-text { display: none; }
+
+.mode-cover .pl-row {
+  justify-content: center;
+  min-height: 0;
+  padding: 6px;
+  border-bottom: 0;
+}
+
+.mode-cover .pl-thumb {
+  width: var(--pl-cover);
+  height: var(--pl-cover);
+}
+
+.mode-cover.scroll-vertical .pl-scroll {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--pl-cell), 1fr));
+  align-content: start;
+}
+
+/* --- 横スクロール ---
+ * grid-auto-flow: column で、縦に詰めてから右へ流す。
+ * flex の column wrap は横幅が伸びない環境があるため grid を使う。 */
+.scroll-horizontal .pl-scroll {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(auto-fill, var(--pl-row-h));
+  grid-auto-columns: var(--pl-col-w);
+  align-content: start;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.mode-cover.scroll-horizontal .pl-scroll {
+  grid-template-rows: repeat(auto-fill, var(--pl-cell));
+  grid-auto-columns: var(--pl-cell);
+}
+
+.scroll-horizontal .pl-scroll::-webkit-scrollbar { height: 6px; }
+
+/* 横スクロール時は縦の区切り線が不自然になるので消す */
+.scroll-horizontal .pl-row { border-bottom: 0; }
+
+/* 読み込み中やエラー文はグリッドに載せず、素直に全幅で出す */
+.pl-scroll.is-message {
+  display: block;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------------
+ * 設定タブ
+ * ------------------------------------------------------------------ */
+.set-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.set-scroll::-webkit-scrollbar { width: 6px; }
+.set-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.22);
+  border-radius: 3px;
+}
+
+.set-label {
+  margin-bottom: 9px;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+  color: #888;
+}
+
+.set-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.set-opt {
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  color: #c8c8c8;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.set-opt.is-active {
+  background: #1ed760;
+  border-color: #1ed760;
+  color: #111;
+  font-weight: 700;
+}
+
+/* 端末名は長くなるので、2行構成にして種別を小さく添える */
+.set-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  max-width: 100%;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  text-align: left;
+}
+
+.set-opt-sub {
+  font-size: 12px;
+  opacity: 0.72;
+  font-weight: 400;
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.set-empty {
+  width: 100%;
+  color: #6f6f6f;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.set-opt:active { background: rgba(255,255,255,0.18); }
+.set-opt.is-active:active { background: #17b44f; }
+
+.set-note {
+  color: #6f6f6f;
+  font-size: 13px;
+  line-height: 1.7;
 }

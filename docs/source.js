@@ -15,10 +15,31 @@
 const NowPlayingSource = (() => {
   // 再生制御には user-modify-playback-state が必要。
   // スコープを変更したら localStorage を消して再ログインすること。
-  const SCOPES = "user-read-currently-playing user-modify-playback-state";
+  const SCOPES = [
+    "user-read-currently-playing",
+    "user-modify-playback-state",
+    "playlist-read-private",
+    "playlist-read-collaborative",
+    // 端末一覧の取得に必要
+    "user-read-playback-state",
+  ].join(" ");
   const AUTH_URL = "https://accounts.spotify.com/authorize";
   const TOKEN_URL = "https://accounts.spotify.com/api/token";
   const CURRENTLY_PLAYING_URL = "https://api.spotify.com/v1/me/player/currently-playing";
+  const PLAYLISTS_URL = "https://api.spotify.com/v1/me/playlists";
+  // 2026-02 の変更で /tracks → /items にリネームされた
+  const PLAYLIST_ITEMS_URL = "https://api.spotify.com/v1/playlists/{id}/items";
+  // 1リクエストの上限は プレイリスト50件 / 曲100件。
+  // それ以上はページングが必要なので、取得する総数の上限もここで決めておく。
+  const PLAYLISTS_PAGE_SIZE = 50;
+  const PLAYLIST_ITEMS_PAGE_SIZE = 100;
+  const MAX_PLAYLISTS = 500;
+  const MAX_PLAYLIST_ITEMS = 500;
+  const PLAY_URL = "https://api.spotify.com/v1/me/player/play";
+  const SHUFFLE_URL = "https://api.spotify.com/v1/me/player/shuffle";
+  const DEVICES_URL = "https://api.spotify.com/v1/me/player/devices";
+  // 再生先の転送
+  const PLAYER_URL = "https://api.spotify.com/v1/me/player";
   const PLAYER_COMMANDS = {
     play:     ["PUT",  "https://api.spotify.com/v1/me/player/play"],
     pause:    ["PUT",  "https://api.spotify.com/v1/me/player/pause"],
@@ -283,15 +304,24 @@ const NowPlayingSource = (() => {
   // 再生制御
   // -------------------------------
 
-  async function sendCommandToServer(action) {
-    const res = await fetch(`api/command/${action}`, { method: "POST" });
+  async function sendCommandToServer(action, deviceId) {
+    const res = await fetch(`api/command/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: deviceId || null }),
+    });
     if (res.ok) return { status: "ok" };
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) return { status: "login" };
     return { status: "error", reason: body.error };
   }
 
-  async function sendCommandToSpotify(action) {
+  function withDeviceParam(url, deviceId) {
+    if (!deviceId) return url;
+    return url + (url.includes("?") ? "&" : "?") + `device_id=${encodeURIComponent(deviceId)}`;
+  }
+
+  async function sendCommandToSpotify(action, deviceId) {
     const entry = PLAYER_COMMANDS[action];
     if (!entry) return { status: "error", reason: "unknown command" };
 
@@ -299,7 +329,7 @@ const NowPlayingSource = (() => {
     if (!tokens) return { status: "login" };
 
     const [method, url] = entry;
-    const res = await fetch(url, {
+    const res = await fetch(withDeviceParam(url, deviceId), {
       method,
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
@@ -311,8 +341,302 @@ const NowPlayingSource = (() => {
     }
     // 操作対象の端末が定まっていない。Spotify アプリで一度再生すると解消する
     if (res.status === 404) return { status: "error", reason: "no_active_device" };
+    if (res.status === 403) return { status: "error", reason: await classifyForbidden(res) };
+    return { status: "error", reason: `spotify ${res.status}` };
+  }
+
+  // -------------------------------
+  // プレイリスト
+  // -------------------------------
+
+  /**
+   * 一覧のサムネに使う画像を選ぶ。
+   * Spotify は複数サイズを返すので、64px 以上で最小のものを使い、
+   * Pi Zero でのダウンロードと描画の負荷を抑える。
+   */
+  function pickThumbnail(images) {
+    if (!images?.length) return null;
+    const sized = images.filter((i) => i.height);
+    if (!sized.length) return images[images.length - 1].url;
+    const ascending = [...sized].sort((a, b) => a.height - b.height);
+    return (ascending.find((i) => i.height >= 64) ?? ascending[ascending.length - 1]).url;
+  }
+
+  function simplifyPlaylist(pl) {
+    // playlist オブジェクトの tracks も 2026-02 に items へリネームされた。
+    // 移行期のため両方を見る。
+    const counts = pl.items || pl.tracks || {};
+    return {
+      id: pl.id,
+      name: pl.name || "(名称なし)",
+      uri: pl.uri,
+      owner: pl.owner?.display_name || "",
+      total: counts.total,
+      image_url: pickThumbnail(pl.images),
+    };
+  }
+
+  function simplifyPlaylistItem(entry) {
+    // PlaylistTrackObject の track も item にリネームされたため両対応
+    const track = entry.item || entry.track;
+    if (!track?.uri) return null;
+    const isEpisode = track.type === "episode";
+    const artists = isEpisode
+      ? track.show?.name ?? ""
+      : (track.artists ?? []).map((a) => a.name).join(", ");
+    const images = isEpisode ? track.images ?? track.show?.images : track.album?.images;
+    const totalSeconds = Math.floor((track.duration_ms ?? 0) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    return {
+      uri: track.uri,
+      name: track.name ?? "",
+      artists,
+      duration: `${minutes}:${seconds}`,
+      image_url: pickThumbnail(images),
+    };
+  }
+
+  /** 403 の理由を読み分ける。Premium 不足とスコープ不足では対処が違う */
+  async function classifyForbidden(res) {
+    try {
+      const body = await res.clone().json();
+      if (body?.error?.reason === "PREMIUM_REQUIRED") return "premium_required";
+    } catch {
+      /* 本文が読めない場合はスコープ不足として扱う */
+    }
+    return "insufficient_scope";
+  }
+
+  async function authorizedGet(url) {
+    const tokens = await getValidTokens();
+    if (!tokens) return { status: "login" };
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+      cache: "no-store",
+    });
+    if (res.status === 401) {
+      clearTokens();
+      return { status: "login" };
+    }
+    return { status: res.ok ? "ok" : "error", res };
+  }
+
+  /**
+   * ページングして全件集める。
+   * 戻り値は { status: "ok", items } か、失敗時のステータス。
+   */
+  async function fetchAllPages(baseUrl, pageSize, maxItems) {
+    const items = [];
+    let offset = 0;
+
+    while (items.length < maxItems) {
+      const url = `${baseUrl}?limit=${pageSize}&offset=${offset}`;
+      const r = await authorizedGet(url);
+      if (r.status !== "ok") return r;
+
+      const data = await r.res.json();
+      const page = data.items ?? [];
+      items.push(...page);
+
+      // next が無い、または空ページなら終わり
+      if (!data.next || !page.length) break;
+      offset += pageSize;
+    }
+
+    return { status: "ok", items: items.slice(0, maxItems) };
+  }
+
+  async function getPlaylistsFromSpotify() {
+    const r = await fetchAllPages(PLAYLISTS_URL, PLAYLISTS_PAGE_SIZE, MAX_PLAYLISTS);
+    if (r.status !== "ok") {
+      if (r.status === "login") return r;
+      if (r.res?.status === 403) return { status: "error", reason: await classifyForbidden(r.res) };
+      return { status: "error" };
+    }
+    return { status: "ok", items: r.items.filter(Boolean).map(simplifyPlaylist) };
+  }
+
+  async function getPlaylistItemsFromSpotify(id) {
+    const r = await fetchAllPages(
+      PLAYLIST_ITEMS_URL.replace("{id}", id),
+      PLAYLIST_ITEMS_PAGE_SIZE,
+      MAX_PLAYLIST_ITEMS
+    );
+    if (r.status === "login") return r;
+    if (r.status !== "ok") {
+      // 所有していないプレイリストは 403。呼び出し元が「まるごと再生」に切り替える
+      if (r.res?.status === 403) return { status: "forbidden" };
+      return { status: "error" };
+    }
+    return { status: "ok", items: r.items.map(simplifyPlaylistItem).filter(Boolean) };
+  }
+
+  /** offset は { uri } か { position } のどちらか。null なら先頭から */
+  async function playContextOnSpotify(contextUri, offset, deviceId) {
+    const tokens = await getValidTokens();
+    if (!tokens) return { status: "login" };
+
+    const payload = { context_uri: contextUri };
+    if (offset?.uri) payload.offset = { uri: offset.uri };
+    else if (Number.isInteger(offset?.position) && offset.position >= 0) {
+      payload.offset = { position: offset.position };
+    }
+
+    const res = await fetch(withDeviceParam(PLAY_URL, deviceId), {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok || res.status === 204) return { status: "ok" };
+    if (res.status === 401) {
+      clearTokens();
+      return { status: "login" };
+    }
+    if (res.status === 404) return { status: "error", reason: "no_active_device" };
     if (res.status === 403) return { status: "error", reason: "premium_required" };
     return { status: "error", reason: `spotify ${res.status}` };
+  }
+
+  async function setShuffleOnSpotify(state, deviceId) {
+    const tokens = await getValidTokens();
+    if (!tokens) return { status: "login" };
+
+    const url = withDeviceParam(`${SHUFFLE_URL}?state=${state ? "true" : "false"}`, deviceId);
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+
+    if (res.ok || res.status === 204) return { status: "ok" };
+    if (res.status === 401) {
+      clearTokens();
+      return { status: "login" };
+    }
+    if (res.status === 404) return { status: "error", reason: "no_active_device" };
+    if (res.status === 403) return { status: "error", reason: await classifyForbidden(res) };
+    return { status: "error", reason: `spotify ${res.status}` };
+  }
+
+  async function setShuffleOnServer(state, deviceId) {
+    const res = await fetch("api/shuffle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: Boolean(state), device_id: deviceId || null }),
+    });
+    if (res.ok) return { status: "ok" };
+    if (res.status === 401) return { status: "login" };
+    const body = await res.json().catch(() => ({}));
+    return { status: "error", reason: body.error };
+  }
+
+  async function getPlaylistsFromServer() {
+    const res = await fetch("api/playlists", { cache: "no-store" });
+    if (res.status === 401) return { status: "login" };
+    if (!res.ok) return { status: "error" };
+    return { status: "ok", items: (await res.json()).items ?? [] };
+  }
+
+  async function getPlaylistItemsFromServer(id) {
+    const res = await fetch(`api/playlists/${id}/items`, { cache: "no-store" });
+    if (res.status === 401) return { status: "login" };
+    if (res.status === 403) return { status: "forbidden" };
+    if (!res.ok) return { status: "error" };
+    return { status: "ok", items: (await res.json()).items ?? [] };
+  }
+
+  async function playContextOnServer(contextUri, offset, deviceId) {
+    const res = await fetch("api/play", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        context_uri: contextUri,
+        offset_uri: offset?.uri ?? null,
+        offset_position: Number.isInteger(offset?.position) ? offset.position : null,
+        device_id: deviceId || null,
+      }),
+    });
+    if (res.ok) return { status: "ok" };
+    if (res.status === 401) return { status: "login" };
+    const body = await res.json().catch(() => ({}));
+    return { status: "error", reason: body.error };
+  }
+
+  // -------------------------------
+  // 再生先の端末
+  // -------------------------------
+
+  function simplifyDevice(d) {
+    return {
+      id: d.id,
+      name: d.name || "(名称なし)",
+      type: d.type || "",
+      is_active: Boolean(d.is_active),
+      is_restricted: Boolean(d.is_restricted),
+    };
+  }
+
+  async function getDevicesFromSpotify() {
+    const r = await authorizedGet(DEVICES_URL);
+    if (r.status !== "ok") {
+      if (r.status === "login") return r;
+      if (r.res?.status === 403) return { status: "error", reason: await classifyForbidden(r.res) };
+      return { status: "error" };
+    }
+    const data = await r.res.json();
+    return {
+      status: "ok",
+      items: (data.devices ?? []).filter((d) => d?.id).map(simplifyDevice),
+    };
+  }
+
+  async function getDevicesFromServer() {
+    const res = await fetch("api/devices", { cache: "no-store" });
+    if (res.status === 401) return { status: "login" };
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return { status: "error", reason: body.error };
+    }
+    return { status: "ok", items: (await res.json()).items ?? [] };
+  }
+
+  async function transferOnSpotify(deviceId, play) {
+    const tokens = await getValidTokens();
+    if (!tokens) return { status: "login" };
+
+    const res = await fetch(PLAYER_URL, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ device_ids: [deviceId], play: Boolean(play) }),
+    });
+
+    if (res.ok || res.status === 204) return { status: "ok" };
+    if (res.status === 401) {
+      clearTokens();
+      return { status: "login" };
+    }
+    if (res.status === 404) return { status: "error", reason: "no_active_device" };
+    if (res.status === 403) return { status: "error", reason: await classifyForbidden(res) };
+    return { status: "error", reason: `spotify ${res.status}` };
+  }
+
+  async function transferOnServer(deviceId, play) {
+    const res = await fetch("api/transfer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: deviceId, play: Boolean(play) }),
+    });
+    if (res.ok) return { status: "ok" };
+    if (res.status === 401) return { status: "login" };
+    const body = await res.json().catch(() => ({}));
+    return { status: "error", reason: body.error };
   }
 
   // -------------------------------
@@ -340,8 +664,40 @@ const NowPlayingSource = (() => {
     return mode === "server" ? getNowPlayingFromServer() : getNowPlayingFromSpotify();
   }
 
-  async function sendCommand(action) {
-    return mode === "server" ? sendCommandToServer(action) : sendCommandToSpotify(action);
+  async function sendCommand(action, deviceId) {
+    return mode === "server"
+      ? sendCommandToServer(action, deviceId)
+      : sendCommandToSpotify(action, deviceId);
+  }
+
+  async function getDevices() {
+    return mode === "server" ? getDevicesFromServer() : getDevicesFromSpotify();
+  }
+
+  async function transferPlayback(deviceId, play) {
+    return mode === "server"
+      ? transferOnServer(deviceId, play)
+      : transferOnSpotify(deviceId, play);
+  }
+
+  async function getPlaylists() {
+    return mode === "server" ? getPlaylistsFromServer() : getPlaylistsFromSpotify();
+  }
+
+  async function getPlaylistItems(id) {
+    return mode === "server" ? getPlaylistItemsFromServer(id) : getPlaylistItemsFromSpotify(id);
+  }
+
+  async function setShuffle(state, deviceId) {
+    return mode === "server"
+      ? setShuffleOnServer(state, deviceId)
+      : setShuffleOnSpotify(state, deviceId);
+  }
+
+  async function playContext(contextUri, offset, deviceId) {
+    return mode === "server"
+      ? playContextOnServer(contextUri, offset, deviceId)
+      : playContextOnSpotify(contextUri, offset, deviceId);
   }
 
   function login() {
@@ -352,5 +708,17 @@ const NowPlayingSource = (() => {
     }
   }
 
-  return { init, getNowPlaying, sendCommand, login, getMode: () => mode };
+  return {
+    init,
+    getNowPlaying,
+    sendCommand,
+    getPlaylists,
+    getPlaylistItems,
+    playContext,
+    setShuffle,
+    getDevices,
+    transferPlayback,
+    login,
+    getMode: () => mode,
+  };
 })();

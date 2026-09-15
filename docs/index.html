@@ -11,63 +11,171 @@
 <body>
   <main class="screen">
     <div class="card">
-      <div class="top-row">
-        <div class="cover-wrap">
-          <img id="cover" class="cover" alt="album cover" />
-        </div>
-        <div id="album-meta" class="album-meta">
-          <div id="album-type" class="album-type-badge"></div>
-          <div id="album-name" class="album-name"></div>
-          <div id="album-artists" class="album-artists"></div>
-          <div id="release-date" class="release-date"></div>
-        </div>
-      </div>
 
-      <div class="marquee-outer">
-        <div id="status" class="status">起動中…</div>
-        <div class="marquee-track">
-          <div id="marquee" class="marquee-inner">
-            Spotify に接続中…
-          </div>
-        </div>
-      </div>
+      <nav class="tabs" id="tabs">
+        <button class="tab is-active" id="tab-now" type="button" aria-label="再生中" title="再生中">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7.9 5.6 18.9 3.4v2.6L7.9 8.2z"/>
+            <rect x="7.9" y="5.6" width="1.8" height="11"/>
+            <rect x="17.1" y="3.4" width="1.8" height="10"/>
+            <circle cx="6.2" cy="16.4" r="2.9"/>
+            <circle cx="15.4" cy="13.2" r="2.9"/>
+          </svg>
+        </button>
+        <button class="tab" id="tab-playlists" type="button" aria-label="プレイリスト" title="プレイリスト">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="5" cy="6.5" r="1.7"/><rect x="9" y="5.3" width="11" height="2.4" rx="1.2"/>
+            <circle cx="5" cy="12" r="1.7"/><rect x="9" y="10.8" width="11" height="2.4" rx="1.2"/>
+            <circle cx="5" cy="17.5" r="1.7"/><rect x="9" y="16.3" width="11" height="2.4" rx="1.2"/>
+          </svg>
+        </button>
+        <button class="tab" id="tab-settings" type="button" aria-label="設定" title="設定">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <g>
+              <rect x="10.6" y="0.8" width="2.8" height="5" rx="1.2"/>
+              <rect x="10.6" y="0.8" width="2.8" height="5" rx="1.2" transform="rotate(60 12 12)"/>
+              <rect x="10.6" y="0.8" width="2.8" height="5" rx="1.2" transform="rotate(120 12 12)"/>
+              <rect x="10.6" y="0.8" width="2.8" height="5" rx="1.2" transform="rotate(180 12 12)"/>
+              <rect x="10.6" y="0.8" width="2.8" height="5" rx="1.2" transform="rotate(240 12 12)"/>
+              <rect x="10.6" y="0.8" width="2.8" height="5" rx="1.2" transform="rotate(300 12 12)"/>
+            </g>
+            <!-- fill-rule="evenodd" で中央を抜き、背景色に依存しないリングにする -->
+            <path fill-rule="evenodd" d="M12 5.6a6.4 6.4 0 1 0 0 12.8 6.4 6.4 0 0 0 0-12.8zm0 3.5a2.9 2.9 0 1 1 0 5.8 2.9 2.9 0 0 1 0-5.8z"/>
+          </svg>
+        </button>
+      </nav>
 
-      <div class="bottom-row">
-        <div class="track-details">
-          <div class="track-detail" id="detail-key" style="display:none">
-            <span class="detail-label">KEY</span>
-            <span id="track-key" class="detail-value"></span>
-          </div>
-          <div class="track-detail" id="detail-duration" style="display:none">
-            <span class="detail-label">TIME</span>
-            <span id="track-duration" class="detail-value"></span>
-          </div>
-        </div>
-      </div>
+      <div class="views">
 
-      <div class="controls" id="controls" hidden>
-        <button class="ctrl-btn" id="btn-prev" type="button" aria-label="前の曲">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6h2.5v12H7zM19 6v12l-9-6z"/></svg>
-        </button>
-        <button class="ctrl-btn ctrl-btn-main" id="btn-play" type="button" aria-label="再生 / 一時停止">
-          <svg id="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
-          <svg id="icon-pause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
-        </button>
-        <button class="ctrl-btn" id="btn-next" type="button" aria-label="次の曲">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6H17v12h-2.5zM5 6l9 6-9 6z"/></svg>
-        </button>
+        <!-- ================= 再生中 ================= -->
+        <section class="view is-active" id="view-now">
+          <div class="top-row">
+            <div class="cover-wrap">
+              <img id="cover" class="cover" alt="album cover" />
+            </div>
+            <div id="album-meta" class="album-meta">
+              <div id="album-type" class="album-type-badge"></div>
+              <div id="album-name" class="album-name"></div>
+              <div id="album-artists" class="album-artists"></div>
+              <div id="release-date" class="release-date"></div>
+            </div>
+          </div>
+
+          <div class="marquee-outer">
+            <div id="status" class="status">起動中…</div>
+            <div class="marquee-track">
+              <div id="marquee" class="marquee-inner">
+                Spotify に接続中…
+              </div>
+            </div>
+          </div>
+
+          <div class="bottom-row">
+            <div class="track-details">
+              <div class="track-detail" id="detail-key" style="display:none">
+                <span class="detail-label">KEY</span>
+                <span id="track-key" class="detail-value"></span>
+              </div>
+              <div class="track-detail" id="detail-duration" style="display:none">
+                <span class="detail-label">TIME</span>
+                <span id="track-duration" class="detail-value"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="controls" id="controls" hidden>
+            <button class="ctrl-btn" id="btn-prev" type="button" aria-label="前の曲">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6h2.5v12H7zM19 6v12l-9-6z"/></svg>
+            </button>
+            <button class="ctrl-btn ctrl-btn-main" id="btn-play" type="button" aria-label="再生 / 一時停止">
+              <svg id="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
+              <svg id="icon-pause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+            </button>
+            <button class="ctrl-btn" id="btn-next" type="button" aria-label="次の曲">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6H17v12h-2.5zM5 6l9 6-9 6z"/></svg>
+            </button>
+          </div>
+
+          <div class="login-box" id="login-box" hidden>
+            <button class="login-button" id="login-button" type="button">Spotify でログイン</button>
+          </div>
+        </section>
+
+        <!-- ================= プレイリスト ================= -->
+        <section class="view" id="view-playlists">
+
+          <div class="pl-pane" id="pl-list-pane">
+            <div class="pl-head">
+              <span class="pl-head-title">プレイリスト</span>
+              <button class="pl-btn" id="pl-reload" type="button">更新</button>
+            </div>
+            <div class="pl-scroll" id="pl-list">
+              <div class="pl-empty">読み込み中…</div>
+            </div>
+          </div>
+
+          <div class="pl-pane" id="pl-tracks-pane" hidden>
+            <div class="pl-head">
+              <button class="pl-btn" id="pl-back" type="button">← 戻る</button>
+              <span class="pl-head-title" id="pl-title"></span>
+              <button class="pl-toggle" id="pl-shuffle" type="button" role="switch" aria-checked="false">
+                <span class="pl-toggle-label">ランダム演奏</span>
+                <span class="pl-toggle-track"><span class="pl-toggle-knob"></span></span>
+              </button>
+              <button class="pl-btn pl-btn-accent" id="pl-play-all" type="button">まるごと再生</button>
+            </div>
+            <div class="pl-scroll" id="pl-tracks"></div>
+          </div>
+
+        </section>
+
+        <!-- ================= 設定 ================= -->
+        <section class="view" id="view-settings">
+          <div class="set-scroll">
+
+            <div class="set-group">
+              <div class="set-label">一覧の表示</div>
+              <div class="set-options" id="set-display">
+                <button class="set-opt" type="button" data-value="text">テキストのみ</button>
+                <button class="set-opt" type="button" data-value="cover">ジャケットのみ</button>
+                <button class="set-opt" type="button" data-value="both">両方</button>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <div class="set-label">スクロール方向</div>
+              <div class="set-options" id="set-scroll">
+                <button class="set-opt" type="button" data-value="vertical">縦スクロール</button>
+                <button class="set-opt" type="button" data-value="horizontal">横スクロール</button>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <div class="set-label">再生する端末</div>
+              <div class="set-options" id="set-device">
+                <div class="set-empty">読み込み中…</div>
+              </div>
+              <div class="set-row">
+                <button class="pl-btn" id="set-device-reload" type="button">端末を再検出</button>
+                <span class="set-note">Spotify アプリが動いている端末だけが表示されます。</span>
+              </div>
+            </div>
+
+            <div class="set-note">設定はこの端末のブラウザに保存されます。</div>
+          </div>
+        </section>
+
       </div>
 
       <div class="toast" id="toast" hidden></div>
-
-      <div class="login-box" id="login-box" hidden>
-        <button class="login-button" id="login-button" type="button">Spotify でログイン</button>
-      </div>
     </div>
   </main>
 
   <script src="config.js"></script>
   <script src="source.js"></script>
+  <script src="devices.js"></script>
   <script src="app.js"></script>
+  <script src="playlists.js"></script>
+  <script src="settings.js"></script>
 </body>
 </html>
