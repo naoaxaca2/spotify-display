@@ -144,6 +144,7 @@ async function loadPlaylists() {
 
   plListEl.classList.remove("is-message");
   plListEl.replaceChildren(...result.items.map(buildPlaylistRow));
+  highlightPlayingPlaylist();
   playlistsLoaded = true;
 }
 
@@ -197,8 +198,22 @@ function buildPlaylistRow(pl) {
     .filter(Boolean)
     .join(" · ");
   const row = buildRow(pl.image_url, pl.name, sub);
+  row.dataset.uri = pl.uri || "";
   row.addEventListener("click", () => openPlaylist(pl));
   return row;
+}
+
+/**
+ * 再生中のプレイリストに印を付ける。
+ * app.js が再生元を取得したときに呼ばれる。
+ */
+function highlightPlayingPlaylist() {
+  for (const row of plListEl.querySelectorAll(".pl-row")) {
+    row.classList.toggle(
+      "is-playing",
+      Boolean(currentContextUri) && row.dataset.uri === currentContextUri
+    );
+  }
 }
 
 // -------------------------------

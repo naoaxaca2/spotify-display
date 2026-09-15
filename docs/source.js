@@ -240,6 +240,8 @@ const NowPlayingSource = (() => {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = String(totalSeconds % 60).padStart(2, "0");
 
+    result.context_raw = data.context ?? null;
+
     return Object.assign(result, {
       title,
       artists,
@@ -296,6 +298,10 @@ const NowPlayingSource = (() => {
     const data = normalize(await res.json());
     if (data.is_playing && data.type === "track") {
       Object.assign(data, await fetchAudioFeatures(data.track_id, tokens.access_token));
+    }
+    if (data.context_raw !== undefined) {
+      data.context = await resolveContext(data.context_raw, tokens.access_token);
+      delete data.context_raw;
     }
     return { status: "ok", data };
   }
@@ -354,6 +360,64 @@ const NowPlayingSource = (() => {
    * Spotify は複数サイズを返すので、64px 以上で最小のものを使い、
    * Pi Zero でのダウンロードと描画の負荷を抑える。
    */
+  // 再生元（プレイリスト / アルバム / アーティスト）の名前を引くためのURL
+  const CONTEXT_URLS = {
+    playlist: "https://api.spotify.com/v1/playlists/{id}",
+    album: "https://api.spotify.com/v1/albums/{id}",
+    artist: "https://api.spotify.com/v1/artists/{id}",
+  };
+  const CONTEXT_TYPE_LABELS = {
+    playlist: "プレイリスト",
+    album: "アルバム",
+    artist: "アーティスト",
+    collection: "お気に入りの曲",
+  };
+  // 5秒ごとのポーリングで毎回引かないよう、URIをキーに覚えておく
+  const contextCache = new Map();
+  const CONTEXT_CACHE_MAX = 100;
+
+  /**
+   * 再生元の名前と画像を引く。
+   * 他の端末で再生を始めた場合も context は返ってくるので、
+   * どこから再生していても同じ情報を表示できる。
+   */
+  async function resolveContext(context, accessToken) {
+    if (!context?.uri) return null;
+
+    const uri = context.uri;
+    if (contextCache.has(uri)) return contextCache.get(uri);
+
+    const parts = uri.split(":");
+    const type = context.type || (parts.length >= 3 ? parts[1] : "");
+    const result = {
+      type,
+      uri,
+      type_label: CONTEXT_TYPE_LABELS[type] || "",
+      name: null,
+      image_url: null,
+    };
+
+    const url = CONTEXT_URLS[type];
+    if (url) {
+      try {
+        const res = await fetch(url.replace("{id}", parts[parts.length - 1]), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          result.name = data.name ?? null;
+          result.image_url = pickThumbnail(data.images);
+        }
+      } catch {
+        // 名前が出ないだけなので、再生表示そのものは止めない
+      }
+    }
+
+    if (contextCache.size >= CONTEXT_CACHE_MAX) contextCache.clear();
+    contextCache.set(uri, result);
+    return result;
+  }
+
   function pickThumbnail(images) {
     if (!images?.length) return null;
     const sized = images.filter((i) => i.height);

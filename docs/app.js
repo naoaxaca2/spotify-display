@@ -10,6 +10,10 @@ const trackKeyEl = document.getElementById("track-key");
 const trackDurationEl = document.getElementById("track-duration");
 const detailKeyEl = document.getElementById("detail-key");
 const detailDurationEl = document.getElementById("detail-duration");
+const contextBoxEl = document.getElementById("playing-context");
+const contextThumbEl = document.getElementById("context-thumb");
+const contextLabelEl = document.getElementById("context-label");
+const contextNameEl = document.getElementById("context-name");
 const controlsEl = document.getElementById("controls");
 const btnPrevEl = document.getElementById("btn-prev");
 const btnPlayEl = document.getElementById("btn-play");
@@ -133,6 +137,7 @@ const COMMAND_ERRORS = {
   no_active_device: "操作できる端末がありません。Spotify アプリで一度再生してください",
   premium_required: "再生制御には Spotify Premium が必要です",
   insufficient_scope: "権限が不足しています。token_store.json を削除して再ログインしてください",
+  network: "Spotify に接続できません。ネットワークを確認してください",
 };
 
 function showToast(message) {
@@ -140,6 +145,47 @@ function showToast(message) {
   toastEl.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toastEl.hidden = true; }, 4000);
+}
+
+// いま再生元になっているプレイリスト等の URI。プレイリスト画面の強調に使う
+let currentContextUri = null;
+
+/**
+ * 再生元（プレイリスト / アルバム / アーティスト）を表示する。
+ * 他の端末で再生を始めた場合も Spotify が context を返すので、
+ * このアプリから再生したかどうかに関わらず同じように出る。
+ */
+function setPlayingContext(context) {
+  const uri = context?.uri ?? null;
+  if (uri !== currentContextUri) {
+    currentContextUri = uri;
+    // プレイリスト画面が読み込み済みなら強調を付け替える
+    if (typeof highlightPlayingPlaylist === "function") highlightPlayingPlaylist();
+  }
+
+  if (!context) {
+    contextBoxEl.hidden = true;
+    return;
+  }
+
+  contextLabelEl.textContent = context.type_label || "";
+  // 名前を取得できない再生元（Spotify 製プレイリストなど）は種別だけ出す
+  contextNameEl.textContent = context.name || "";
+  contextNameEl.hidden = !context.name;
+
+  if (context.image_url) {
+    contextThumbEl.src = context.image_url;
+    contextThumbEl.hidden = false;
+  } else {
+    contextThumbEl.removeAttribute("src");
+    contextThumbEl.hidden = true;
+  }
+
+  contextBoxEl.hidden = !(context.type_label || context.name);
+}
+
+function clearPlayingContext() {
+  setPlayingContext(null);
 }
 
 function renderPlayIcon(isPlaying) {
@@ -265,6 +311,7 @@ async function fetchNowPlaying() {
       setCover(null);
       clearAlbumInfo();
       clearTrackDetails();
+      clearPlayingContext();
       showLoginBox(true);
       controlsEl.hidden = true;
       setTabsVisible(false); // 未ログインではプレイリストも使えない
@@ -278,10 +325,13 @@ async function fetchNowPlaying() {
     if (result.status === "error") {
       statusEl.textContent = "取得エラー";
       statusEl.className = "status error";
-      setMarqueeText(result.message || "現在再生情報の取得に失敗しました。");
+      setMarqueeText(
+        COMMAND_ERRORS[result.message] || result.message || "現在再生情報の取得に失敗しました。"
+      );
       setCover(null);
       clearAlbumInfo();
       clearTrackDetails();
+      clearPlayingContext();
       return;
     }
 
@@ -300,6 +350,7 @@ async function fetchNowPlaying() {
         statusEl.className = "status paused";
         setMarqueeText(data.display_text);
         setCover(data.image_url || null);
+        setPlayingContext(data.context);
         if (data.type !== "episode") {
           setAlbumInfo(data);
           setTrackDetails(data);
@@ -314,6 +365,7 @@ async function fetchNowPlaying() {
         setCover(null);
         clearAlbumInfo();
         clearTrackDetails();
+        clearPlayingContext();
       }
       return;
     }
@@ -322,6 +374,7 @@ async function fetchNowPlaying() {
     statusEl.className = "status playing";
     setMarqueeText(data.display_text || "再生中");
     setCover(data.image_url || null);
+    setPlayingContext(data.context);
     if (data.type !== "episode") {
       setAlbumInfo(data);
       setTrackDetails(data);

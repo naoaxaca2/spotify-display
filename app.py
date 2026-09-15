@@ -67,6 +67,23 @@ SCOPES = (
     "user-read-playback-state"
 )
 
+# 認可コード交換が失敗したときに画面へ出す説明。
+# 原因ごとに対処が違うので、Spotify が返す error をそのまま見分ける。
+TOKEN_EXCHANGE_ERRORS = {
+    "invalid_client": (
+        "Client ID または Client Secret が一致していません。"
+        ".env の値と Developer Dashboard の設定を確認してください。"
+    ),
+    "invalid_grant": (
+        "認証コードが期限切れ、または使用済みです。"
+        "もう一度ログインし直してください。"
+    ),
+    "invalid_request": (
+        "リダイレクト URI が Developer Dashboard の登録と一致していない可能性があります。"
+    ),
+}
+
+
 # キー名（Pitch Class 0〜11）
 KEY_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
 
@@ -76,15 +93,28 @@ KEY_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯
 # -------------------------------
 
 def load_tokens():
-    """保存済みトークンを読み込む"""
-    if TOKEN_FILE.exists():
+    """保存済みトークンを読み込む。壊れていれば未ログイン扱い"""
+    if not TOKEN_FILE.exists():
+        return None
+    try:
         return json.loads(TOKEN_FILE.read_text())
-    return None
+    except (json.JSONDecodeError, OSError):
+        logging.warning("token_store.json を読めませんでした。未ログインとして扱います")
+        return None
 
 
 def save_tokens(tokens):
     """トークンをファイル保存"""
     TOKEN_FILE.write_text(json.dumps(tokens, indent=2))
+
+
+def clear_tokens():
+    """保存済みトークンを破棄する。
+
+    リフレッシュトークンが失効したときに呼ぶ。
+    残しておくと、起動のたびに同じ失敗を繰り返すことになる。
+    """
+    TOKEN_FILE.unlink(missing_ok=True)
 
 
 def basic_auth_header():
@@ -100,7 +130,12 @@ def token_expired(tokens):
 
 
 def refresh_access_token(tokens):
-    """refresh_token を使ってアクセストークン更新"""
+    """refresh_token を使ってアクセストークン更新。
+
+    失敗したら None を返す。呼び出し元は未ログインとして扱い、
+    画面はログインボタンに戻る。ここで例外を投げると 500 になり、
+    利用者には原因の分からない画面が出てしまう。
+    """
     response = requests.post(
         TOKEN_URL,
         headers=basic_auth_header(),
@@ -109,7 +144,16 @@ def refresh_access_token(tokens):
             "refresh_token": tokens["refresh_token"],
         },
     )
-    response.raise_for_status()
+
+    if not response.ok:
+        # 400 / 401 はリフレッシュトークンの失効か Secret の不一致。
+        # どちらも再ログインしないと回復しないので、保存分は捨てる。
+        logging.warning(
+            "トークン更新に失敗しました (%s): %s", response.status_code, response.text[:200]
+        )
+        clear_tokens()
+        return None
+
     data = response.json()
 
     new_tokens = {
@@ -150,7 +194,10 @@ def build_auth_url():
 
 
 def exchange_code_for_token(code):
-    """認可コード → アクセストークン変換"""
+    """認可コード → アクセストークン変換。
+
+    成功なら None、失敗なら利用者に見せるメッセージを返す。
+    """
     response = requests.post(
         TOKEN_URL,
         headers=basic_auth_header(),
@@ -160,16 +207,28 @@ def exchange_code_for_token(code):
             "redirect_uri": REDIRECT_URI,
         },
     )
-    response.raise_for_status()
+
+    if not response.ok:
+        try:
+            reason = response.json().get("error", "")
+        except ValueError:
+            reason = ""
+        logging.warning(
+            "認可コードの交換に失敗しました (%s): %s", response.status_code, response.text[:200]
+        )
+        return TOKEN_EXCHANGE_ERRORS.get(
+            reason, f"Spotify がトークンの発行を拒否しました（{reason or response.status_code}）。"
+        )
+
     data = response.json()
-
-    tokens = {
-        "access_token": data["access_token"],
-        "refresh_token": data["refresh_token"],
-        "expires_at": time.time() + data["expires_in"],
-    }
-
-    save_tokens(tokens)
+    save_tokens(
+        {
+            "access_token": data["access_token"],
+            "refresh_token": data["refresh_token"],
+            "expires_at": time.time() + data["expires_in"],
+        }
+    )
+    return None
 
 
 # -------------------------------
@@ -227,6 +286,69 @@ def pick_thumbnail(images):
         if img["height"] >= 64:
             return img.get("url")
     return sorted(sized, key=lambda i: i["height"])[-1].get("url")
+
+
+# 再生元（プレイリスト / アルバム / アーティスト）の名前を引くためのURL
+CONTEXT_URLS = {
+    "playlist": "https://api.spotify.com/v1/playlists/{}",
+    "album": "https://api.spotify.com/v1/albums/{}",
+    "artist": "https://api.spotify.com/v1/artists/{}",
+}
+CONTEXT_TYPE_LABELS = {
+    "playlist": "プレイリスト",
+    "album": "アルバム",
+    "artist": "アーティスト",
+    "collection": "お気に入りの曲",
+}
+# 5秒ごとのポーリングで毎回引かないよう、URIをキーに覚えておく
+_context_cache = {}
+CONTEXT_CACHE_MAX = 100
+
+
+def resolve_context(context, access_token):
+    """再生元の名前と画像を引く。
+
+    context は他の端末で再生を始めた場合も返ってくるので、
+    どこから再生していても同じ情報を表示できる。
+    名前が引けなくても種別だけは返す（Spotify 製のプレイリストなど、
+    メタデータを取得できないものがあるため）。
+    """
+    if not context or not context.get("uri"):
+        return None
+
+    uri = context["uri"]
+    if uri in _context_cache:
+        return _context_cache[uri]
+
+    parts = uri.split(":")
+    ctx_type = context.get("type") or (parts[1] if len(parts) >= 3 else "")
+    result = {
+        "type": ctx_type,
+        "uri": uri,
+        "type_label": CONTEXT_TYPE_LABELS.get(ctx_type, ""),
+        "name": None,
+        "image_url": None,
+    }
+
+    url = CONTEXT_URLS.get(ctx_type)
+    if url:
+        try:
+            res = requests.get(
+                url.format(parts[-1]),
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if res.ok:
+                data = res.json()
+                result["name"] = data.get("name")
+                result["image_url"] = pick_thumbnail(data.get("images") or [])
+        except requests.RequestException:
+            # 名前が出ないだけなので、再生表示そのものは止めない
+            logging.warning("再生元の情報を取得できませんでした: %s", uri)
+
+    if len(_context_cache) >= CONTEXT_CACHE_MAX:
+        _context_cache.clear()
+    _context_cache[uri] = result
+    return result
 
 
 def fetch_all_pages(url, access_token, page_size, max_items):
@@ -350,7 +472,10 @@ def send_player_command(action, access_token, device_id=None):
 
 
 def fetch_now_playing(access_token):
-    """現在再生中の曲を取得"""
+    """現在再生中の曲を取得。
+
+    戻り値は (data, error_response)。error_response が None なら成功。
+    """
     res = requests.get(
         CURRENTLY_PLAYING_URL,
         headers={"Authorization": f"Bearer {access_token}"},
@@ -358,14 +483,16 @@ def fetch_now_playing(access_token):
 
     # 再生していない場合
     if res.status_code == 204:
-        return {"is_playing": False}
+        return {"is_playing": False}, None
 
-    res.raise_for_status()
+    if not res.ok:
+        return None, res
+
     data = res.json()
 
     item = data.get("item")
     if not item:
-        return {"is_playing": False}
+        return {"is_playing": False}, None
 
     item_type = item.get("type", "track")  # "track" or "episode"
 
@@ -410,7 +537,9 @@ def fetch_now_playing(access_token):
         result["release_date"] = release_date
         result["album_artists"] = album_artists
 
-    return result
+    result["context"] = resolve_context(data.get("context"), access_token)
+
+    return result, None
 
 
 # -------------------------------
@@ -438,11 +567,48 @@ def login():
     return redirect(build_auth_url())
 
 
+def auth_error_page(message, status):
+    """ログインに失敗したときの画面。
+
+    トレースバックの代わりに、原因と次の操作を日本語で示す。
+    """
+    html = f"""<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<title>ログインできませんでした</title>
+<style>
+ body {{ margin:0; min-height:100vh; display:flex; align-items:center;
+        justify-content:center; background:#0b0b0b; color:#f5f5f5;
+        font-family:'Hiragino Sans','Noto Sans CJK JP',sans-serif; }}
+ .box {{ max-width:520px; padding:32px; text-align:center; }}
+ h1 {{ font-size:20px; margin:0 0 14px; }}
+ p {{ color:#c8c8c8; font-size:15px; line-height:1.8; margin:0 0 24px; }}
+ a {{ display:inline-block; padding:14px 22px; border-radius:10px;
+      background:#1ed760; color:#111; text-decoration:none; font-weight:700; }}
+</style></head>
+<body><div class="box">
+ <h1>ログインできませんでした</h1>
+ <p>{message}</p>
+ <a href="/login">もう一度ログインする</a>
+</div></body></html>"""
+    return html, status
+
+
 @app.route("/callback")
 def callback():
     """OAuthコールバック"""
+    # 利用者が承認を拒否した場合は code ではなく error が返る
+    denied = request.args.get("error")
+    if denied:
+        return auth_error_page(f"Spotify 側で認証が中断されました（{denied}）。", 400)
+
     code = request.args.get("code")
-    exchange_code_for_token(code)
+    if not code:
+        return auth_error_page("認証コードが受け取れませんでした。", 400)
+
+    message = exchange_code_for_token(code)
+    if message:
+        return auth_error_page(message, 400)
+
     return redirect("/")
 
 
@@ -636,7 +802,10 @@ def now_playing():
     if not tokens:
         return jsonify({"error": "not authenticated", "login_url": "/login"}), 401
 
-    data = fetch_now_playing(tokens["access_token"])
+    data, error = fetch_now_playing(tokens["access_token"])
+    if error is not None:
+        status, payload = spotify_error(error)
+        return jsonify(payload), status
 
     # 再生中のトラックのみキー情報を追加取得
     if data.get("is_playing") and data.get("type") == "track":
@@ -644,6 +813,17 @@ def now_playing():
         data.update(features)
 
     return jsonify(data)
+
+
+@app.errorhandler(requests.RequestException)
+def handle_network_error(err):
+    """Spotify に到達できないとき。
+
+    Pi の電源投入直後やネットワーク断でここに来る。
+    500 のトレースバックではなく、再試行可能なエラーとして返す。
+    """
+    logging.warning("Spotify に接続できませんでした: %s", err)
+    return jsonify({"error": "network"}), 503
 
 
 # -------------------------------

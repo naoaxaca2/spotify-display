@@ -242,6 +242,8 @@ html, body {
   min-height: 34px;
   display: flex;
   align-items: center;
+  gap: 20px;
+  min-width: 0;
 }
 
 .track-details {
@@ -378,6 +380,12 @@ button.login-button {
   .set-opt-sub { font-size: 14px; }
   .set-empty { font-size: 15px; }
   .set-note { font-size: 15px; }
+
+  .bottom-row { gap: 28px; }
+  .playing-context { gap: 12px; max-width: 420px; }
+  .context-thumb { width: 44px; height: 44px; }
+  .context-label { font-size: 14px; }
+  .context-name { font-size: 18px; }
 
   .pl-row { min-height: 74px; padding: 10px 20px; gap: 16px; }
   .pl-thumb { width: 54px; height: 54px; border-radius: 5px; }
@@ -921,3 +929,55 @@ button.login-button {
   font-size: 13px;
   line-height: 1.7;
 }
+
+
+/* ------------------------------------------------------------------
+ * 再生元（プレイリスト等）の表示
+ * ------------------------------------------------------------------ */
+.playing-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.context-thumb {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  object-fit: cover;
+  background: #242424;
+}
+
+.context-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.context-label {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #7e7e7e;
+}
+
+.context-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #d0d0d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 再生中のプレイリストは一覧でも分かるようにする */
+.pl-row.is-playing {
+  background: rgba(30, 215, 96, 0.12);
+  box-shadow: inset 3px 0 0 #1ed760;
+}
+
+.pl-row.is-playing .pl-row-main { color: #1ed760; }
