@@ -10,6 +10,13 @@ const trackKeyEl = document.getElementById("track-key");
 const trackDurationEl = document.getElementById("track-duration");
 const detailKeyEl = document.getElementById("detail-key");
 const detailDurationEl = document.getElementById("detail-duration");
+const controlsEl = document.getElementById("controls");
+const btnPrevEl = document.getElementById("btn-prev");
+const btnPlayEl = document.getElementById("btn-play");
+const btnNextEl = document.getElementById("btn-next");
+const iconPlayEl = document.getElementById("icon-play");
+const iconPauseEl = document.getElementById("icon-pause");
+const toastEl = document.getElementById("toast");
 const loginBoxEl = document.getElementById("login-box");
 const loginButtonEl = document.getElementById("login-button");
 
@@ -110,6 +117,90 @@ function tickMarquee(ts) {
   rafId = requestAnimationFrame(tickMarquee);
 }
 
+
+// -------------------------------
+// 再生制御
+// -------------------------------
+
+let isPlayingNow = false;
+// ボタンを押した直後、Spotify 側の状態が追いつくまでの「先に見せる」値。
+// これが無いと、押してから最大5秒間アイコンが元に戻ったままになる。
+let pendingPlayState = null;
+let pendingUntil = 0;
+let toastTimer = null;
+
+const COMMAND_ERRORS = {
+  no_active_device: "操作できる端末がありません。Spotify アプリで一度再生してください",
+  premium_required: "再生制御には Spotify Premium が必要です",
+};
+
+function showToast(message) {
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.hidden = true; }, 4000);
+}
+
+function renderPlayIcon(isPlaying) {
+  isPlayingNow = isPlaying;
+  iconPlayEl.hidden = isPlaying;
+  iconPauseEl.hidden = !isPlaying;
+}
+
+/** ポーリング結果を反映する。押した直後の表示は一定時間だけ優先する */
+function applyPlayState(fromServer) {
+  if (pendingPlayState !== null) {
+    if (fromServer === pendingPlayState || Date.now() > pendingUntil) {
+      pendingPlayState = null; // Spotify 側が追いついた、または諦める
+    } else {
+      return;
+    }
+  }
+  renderPlayIcon(fromServer);
+}
+
+function setButtonsEnabled(enabled) {
+  for (const el of [btnPrevEl, btnPlayEl, btnNextEl]) el.disabled = !enabled;
+}
+
+async function runCommand(action) {
+  setButtonsEnabled(false);
+  try {
+    const result = await NowPlayingSource.sendCommand(action);
+
+    if (result.status === "login") {
+      showToast("ログインが必要です");
+      return;
+    }
+    if (result.status === "error") {
+      showToast(COMMAND_ERRORS[result.reason] || "操作に失敗しました");
+      // 失敗したので楽観的な表示を取り消す
+      pendingPlayState = null;
+      fetchNowPlaying();
+      return;
+    }
+
+    // Spotify 側の反映には少し間があるので、2回に分けて取り直す
+    setTimeout(fetchNowPlaying, 400);
+    setTimeout(fetchNowPlaying, 1500);
+  } catch (err) {
+    showToast("通信エラー");
+  } finally {
+    setButtonsEnabled(true);
+  }
+}
+
+btnPlayEl.addEventListener("click", () => {
+  const wantPlay = !isPlayingNow;
+  pendingPlayState = wantPlay;
+  pendingUntil = Date.now() + 3000;
+  renderPlayIcon(wantPlay); // 押した瞬間にアイコンを切り替える
+  runCommand(wantPlay ? "play" : "pause");
+});
+
+btnPrevEl.addEventListener("click", () => runCommand("previous"));
+btnNextEl.addEventListener("click", () => runCommand("next"));
+
 function scrollSpeedFor(containerW) {
   // 表示幅に比例して速くする。狭い画面では従来どおり 90px/s のまま
   return SCROLL_SPEED * Math.max(1, containerW / SPEED_REFERENCE_WIDTH);
@@ -172,10 +263,12 @@ async function fetchNowPlaying() {
       clearAlbumInfo();
       clearTrackDetails();
       showLoginBox(true);
+      controlsEl.hidden = true;
       return;
     }
 
     showLoginBox(false);
+    controlsEl.hidden = false;
 
     if (result.status === "error") {
       statusEl.textContent = "取得エラー";
@@ -189,13 +282,34 @@ async function fetchNowPlaying() {
 
     const data = result.data;
 
+    applyPlayState(Boolean(data.is_playing));
+
+    // 一時停止中も Spotify は曲情報を返してくる。
+    // 本当に何も無いとき（204）だけ display_text が存在しない。
+    const hasTrack = Boolean(data.display_text);
+
     if (!data.is_playing) {
-      statusEl.textContent = "Paused / Not Playing";
-      statusEl.className = "status stopped";
-      setMarqueeText(data.message || "現在、再生中のコンテンツはありません");
-      setCover(data.image_url || null);
-      clearAlbumInfo();
-      clearTrackDetails();
+      if (hasTrack) {
+        // 一時停止：曲の表示はそのまま残し、ステータスだけ切り替える
+        statusEl.textContent = "PAUSED";
+        statusEl.className = "status paused";
+        setMarqueeText(data.display_text);
+        setCover(data.image_url || null);
+        if (data.type !== "episode") {
+          setAlbumInfo(data);
+          setTrackDetails(data);
+        } else {
+          clearAlbumInfo();
+          clearTrackDetails();
+        }
+      } else {
+        statusEl.textContent = "Not Playing";
+        statusEl.className = "status stopped";
+        setMarqueeText(data.message || "現在、再生中のコンテンツはありません");
+        setCover(null);
+        clearAlbumInfo();
+        clearTrackDetails();
+      }
       return;
     }
 

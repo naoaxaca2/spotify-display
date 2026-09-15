@@ -247,14 +247,14 @@ button.login-button {
   .cover-wrap {
     width: 72vh;
     height: 72vh;
-    max-width: 340px;
-    max-height: 340px;
+    max-width: 300px;
+    max-height: 300px;
     border-radius: 16px;
   }
 
   .album-meta {
     flex: 0 1 auto;
-    max-width: 320px;
+    max-width: 280px;
     gap: 8px;
   }
 
@@ -284,7 +284,7 @@ button.login-button {
 
   .marquee-track { flex: 0 0 auto; }
 
-  .marquee-inner { font-size: 60px; }
+  .marquee-inner { font-size: 52px; }
 
   /* 右：KEY / TIME を縦に積む */
   .bottom-row {
@@ -301,9 +301,97 @@ button.login-button {
   .detail-label { font-size: 15px; }
   .detail-value { font-size: 30px; }
 
+  /* 右端：KEY / TIME の隣に操作ボタンを並べる */
+  .controls {
+    flex: 0 0 auto;
+    gap: 18px;
+  }
+
+  .ctrl-btn      { width: 72px; height: 72px; }
+  .ctrl-btn-main { width: 88px; height: 88px; }
+
+  .toast { bottom: 8px; font-size: 16px; }
+
   .login-box {
     margin-top: 0;
     margin-left: auto;
     align-self: center;
   }
+}
+
+
+/* ------------------------------------------------------------------
+ * 再生制御ボタン
+ * ------------------------------------------------------------------ */
+.card { position: relative; }
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ctrl-btn {
+  /* タッチ操作前提のサイズ。物理的に約 8mm 角を下回らないようにする */
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+  color: #f5f5f5;
+  cursor: pointer;
+  /* ダブルタップ拡大とタップ時のハイライトを抑止（kiosk 用） */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.ctrl-btn svg {
+  width: 50%;
+  height: 50%;
+  fill: currentColor;
+}
+
+.ctrl-btn-main {
+  width: 68px;
+  height: 68px;
+  background: #1ed760;
+  border-color: #1ed760;
+  color: #111;
+}
+
+/* タッチではホバーが無いので、押下時のフィードバックを明確にする */
+.ctrl-btn:active {
+  transform: scale(0.92);
+  background: rgba(255,255,255,0.18);
+}
+
+.ctrl-btn-main:active {
+  background: #17b44f;
+}
+
+.ctrl-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 9px 16px;
+  border-radius: 8px;
+  background: rgba(20,20,20,0.94);
+  border: 1px solid rgba(255,255,255,0.2);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
 }

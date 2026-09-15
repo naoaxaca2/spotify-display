@@ -45,6 +45,21 @@
         </div>
       </div>
 
+      <div class="controls" id="controls" hidden>
+        <button class="ctrl-btn" id="btn-prev" type="button" aria-label="前の曲">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6h2.5v12H7zM19 6v12l-9-6z"/></svg>
+        </button>
+        <button class="ctrl-btn ctrl-btn-main" id="btn-play" type="button" aria-label="再生 / 一時停止">
+          <svg id="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
+          <svg id="icon-pause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+        </button>
+        <button class="ctrl-btn" id="btn-next" type="button" aria-label="次の曲">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6H17v12h-2.5zM5 6l9 6-9 6z"/></svg>
+        </button>
+      </div>
+
+      <div class="toast" id="toast" hidden></div>
+
       <div class="login-box" id="login-box" hidden>
         <button class="login-button" id="login-button" type="button">Spotify でログイン</button>
       </div>

@@ -13,10 +13,18 @@
  */
 
 const NowPlayingSource = (() => {
-  const SCOPES = "user-read-currently-playing";
+  // 再生制御には user-modify-playback-state が必要。
+  // スコープを変更したら localStorage を消して再ログインすること。
+  const SCOPES = "user-read-currently-playing user-modify-playback-state";
   const AUTH_URL = "https://accounts.spotify.com/authorize";
   const TOKEN_URL = "https://accounts.spotify.com/api/token";
   const CURRENTLY_PLAYING_URL = "https://api.spotify.com/v1/me/player/currently-playing";
+  const PLAYER_COMMANDS = {
+    play:     ["PUT",  "https://api.spotify.com/v1/me/player/play"],
+    pause:    ["PUT",  "https://api.spotify.com/v1/me/player/pause"],
+    next:     ["POST", "https://api.spotify.com/v1/me/player/next"],
+    previous: ["POST", "https://api.spotify.com/v1/me/player/previous"],
+  };
   const AUDIO_FEATURES_URL = "https://api.spotify.com/v1/audio-features/";
 
   const TOKEN_KEY = "spotify_display_tokens";
@@ -272,6 +280,42 @@ const NowPlayingSource = (() => {
   }
 
   // -------------------------------
+  // 再生制御
+  // -------------------------------
+
+  async function sendCommandToServer(action) {
+    const res = await fetch(`api/command/${action}`, { method: "POST" });
+    if (res.ok) return { status: "ok" };
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401) return { status: "login" };
+    return { status: "error", reason: body.error };
+  }
+
+  async function sendCommandToSpotify(action) {
+    const entry = PLAYER_COMMANDS[action];
+    if (!entry) return { status: "error", reason: "unknown command" };
+
+    const tokens = await getValidTokens();
+    if (!tokens) return { status: "login" };
+
+    const [method, url] = entry;
+    const res = await fetch(url, {
+      method,
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+
+    if (res.ok || res.status === 204) return { status: "ok" };
+    if (res.status === 401) {
+      clearTokens();
+      return { status: "login" };
+    }
+    // 操作対象の端末が定まっていない。Spotify アプリで一度再生すると解消する
+    if (res.status === 404) return { status: "error", reason: "no_active_device" };
+    if (res.status === 403) return { status: "error", reason: "premium_required" };
+    return { status: "error", reason: `spotify ${res.status}` };
+  }
+
+  // -------------------------------
   // 公開 API
   // -------------------------------
 
@@ -296,6 +340,10 @@ const NowPlayingSource = (() => {
     return mode === "server" ? getNowPlayingFromServer() : getNowPlayingFromSpotify();
   }
 
+  async function sendCommand(action) {
+    return mode === "server" ? sendCommandToServer(action) : sendCommandToSpotify(action);
+  }
+
   function login() {
     if (mode === "server") {
       location.href = "login";
@@ -304,5 +352,5 @@ const NowPlayingSource = (() => {
     }
   }
 
-  return { init, getNowPlaying, login, getMode: () => mode };
+  return { init, getNowPlaying, sendCommand, login, getMode: () => mode };
 })();

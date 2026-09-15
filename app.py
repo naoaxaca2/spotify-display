@@ -56,7 +56,9 @@ CURRENTLY_PLAYING_URL = "https://api.spotify.com/v1/me/player/currently-playing"
 AUDIO_FEATURES_URL = "https://api.spotify.com/v1/audio-features/{}"
 
 # 必要な権限
-SCOPES = "user-read-currently-playing"
+# 再生制御には user-modify-playback-state が必要。
+# スコープを変更したら token_store.json を消して再ログインすること。
+SCOPES = "user-read-currently-playing user-modify-playback-state"
 
 # キー名（Pitch Class 0〜11）
 KEY_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
@@ -187,6 +189,39 @@ def fetch_audio_features(track_id, access_token):
         return {}
 
 
+# 再生制御コマンド → (HTTPメソッド, エンドポイント)
+PLAYER_COMMANDS = {
+    "play": ("PUT", "https://api.spotify.com/v1/me/player/play"),
+    "pause": ("PUT", "https://api.spotify.com/v1/me/player/pause"),
+    "next": ("POST", "https://api.spotify.com/v1/me/player/next"),
+    "previous": ("POST", "https://api.spotify.com/v1/me/player/previous"),
+}
+
+
+def send_player_command(action, access_token):
+    """再生制御コマンドを送る。(HTTPステータス, 返す辞書) を返す"""
+    if action not in PLAYER_COMMANDS:
+        return 400, {"error": "unknown command"}
+
+    method, url = PLAYER_COMMANDS[action]
+    res = requests.request(
+        method, url, headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    # 成功時は 204 No Content
+    if res.status_code in (200, 202, 204):
+        return 200, {"ok": True}
+
+    # 操作対象の端末が定まっていない。Spotify アプリで一度再生すると解消する
+    if res.status_code == 404:
+        return 409, {"error": "no_active_device"}
+
+    if res.status_code == 403:
+        return 403, {"error": "premium_required"}
+
+    return 502, {"error": f"spotify {res.status_code}"}
+
+
 def fetch_now_playing(access_token):
     """現在再生中の曲を取得"""
     res = requests.get(
@@ -284,6 +319,17 @@ def callback():
     return redirect("/")
 
 
+@app.route("/api/command/<action>", methods=["POST"])
+def command(action):
+    """再生制御API（フロントエンドから呼ばれる）"""
+    tokens = get_valid_tokens()
+    if not tokens:
+        return jsonify({"error": "not authenticated"}), 401
+
+    status, payload = send_player_command(action, tokens["access_token"])
+    return jsonify(payload), status
+
+
 @app.route("/api/now-playing")
 def now_playing():
     """フロントエンド用API"""
@@ -307,6 +353,9 @@ def now_playing():
 # -------------------------------
 
 if __name__ == "__main__":
-    # 開発用サーバ起動
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # 再生制御を持つようになったため、既定では外部からの接続を受け付けない。
+    # 同一LANの他端末から開きたい場合のみ FLASK_HOST=0.0.0.0 を指定する。
+    host = os.getenv("FLASK_HOST", "127.0.0.1")
+    debug = os.getenv("FLASK_DEBUG", "1") == "1"
+    app.run(host=host, port=5000, debug=debug)
 
