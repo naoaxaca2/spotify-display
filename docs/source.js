@@ -111,16 +111,35 @@ const NowPlayingSource = (() => {
     return id;
   }
 
+  // トークン取得が拒否された理由ごとの説明
+  const TOKEN_ERROR_MESSAGES = {
+    invalid_grant: "認証の有効期限が切れています。もう一度ログインしてください。",
+    invalid_client: "Client ID の設定が正しくありません。config.js を確認してください。",
+  };
+
   async function requestToken(params) {
     const res = await fetch(TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(params),
     });
+
     if (!res.ok) {
-      const detail = await res.text();
-      throw new Error(`トークン取得に失敗しました (${res.status}) ${detail}`);
+      let reason = "";
+      try {
+        reason = (await res.clone().json()).error ?? "";
+      } catch {
+        /* JSON でなければ理由は特定しない */
+      }
+      const error = new Error(
+        TOKEN_ERROR_MESSAGES[reason] || `トークンの取得に失敗しました（${reason || res.status}）`
+      );
+      // 呼び出し元が「再ログインで直るか」を判断するために持たせる
+      error.status = res.status;
+      error.reason = reason;
+      throw error;
     }
+
     return res.json();
   }
 
@@ -136,12 +155,23 @@ const NowPlayingSource = (() => {
   }
 
   async function refreshTokens(tokens) {
-    const data = await requestToken({
-      grant_type: "refresh_token",
-      refresh_token: tokens.refresh_token,
-      client_id: clientId(),
-    });
-    return storeTokenResponse(data, tokens.refresh_token);
+    try {
+      const data = await requestToken({
+        grant_type: "refresh_token",
+        refresh_token: tokens.refresh_token,
+        client_id: clientId(),
+      });
+      return storeTokenResponse(data, tokens.refresh_token);
+    } catch (error) {
+      // 4xx はリフレッシュトークンの失効か取り消し。再ログインしないと回復しない。
+      // 保存分を捨てることで、画面はエラーではなくログインボタンに戻る。
+      if (error.status >= 400 && error.status < 500) {
+        clearTokens();
+        return null;
+      }
+      // 通信断などは一時的な失敗なので、トークンは残したまま呼び出し元へ返す
+      throw error;
+    }
   }
 
   async function getValidTokens() {
@@ -195,13 +225,22 @@ const NowPlayingSource = (() => {
     const verifier = sessionStorage.getItem(VERIFIER_KEY);
     if (!verifier) throw new Error("認証情報が失われました。もう一度ログインしてください。");
 
-    const data = await requestToken({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri(),
-      client_id: clientId(),
-      code_verifier: verifier,
-    });
+    let data;
+    try {
+      data = await requestToken({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri(),
+        client_id: clientId(),
+        code_verifier: verifier,
+      });
+    } catch (error) {
+      // 失敗した認証情報は残さない。ログインボタンからやり直せる状態にする
+      clearTokens();
+      sessionStorage.removeItem(VERIFIER_KEY);
+      sessionStorage.removeItem(STATE_KEY);
+      throw error;
+    }
     storeTokenResponse(data, null);
 
     sessionStorage.removeItem(VERIFIER_KEY);
