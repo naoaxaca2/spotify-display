@@ -1,3 +1,8 @@
-requests
-python-dotenv
-Pillow
+# Web 版と venv を共用する前提。まず共通の依存を入れる
+-r ../requirements.txt
+
+# LED 版で追加になるのはこれだけ。
+# バージョンを固定していないのは、Raspberry Pi では apt の python3-pillow を
+# 使うことがあり、そこで入る版に合わせたいため。固定すると ARM 上で
+# ソースビルドが走り、Zero 2 W では十数分かかる
+Pillow>=10,<13

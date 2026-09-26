@@ -86,20 +86,23 @@ sudo apt install -y fonts-noto-cjk
 ### 3. アプリ
 
 Web 版と同じリポジトリなので、すでに Pi に clone してあるならそのまま使える。
+venv も Web 版と共用でよい。`led/requirements.txt` はルートの
+`requirements.txt` を取り込んだうえで Pillow を足すだけなので、これ1本で
+両方の依存が揃う。
 
 ```bash
 cd ~/spotify-display
-python3 -m venv .venv          # Web 版と共用でよい
+python3 -m venv --system-site-packages .venv    # 既にあるなら飛ばす
 source .venv/bin/activate
 pip install -r led/requirements.txt
 ```
 
-`rgbmatrix` は `sudo make install-python` でシステム側に入るため、venv から
-見えないことがある。その場合は venv を `--system-site-packages` で作り直す。
+**`source .venv/bin/activate` を忘れると `ModuleNotFoundError: No module
+named 'PIL'` になる。** システムの python3 には Pillow が入っていないため。
 
-```bash
-python3 -m venv --system-site-packages .venv
-```
+`rgbmatrix` は `sudo make install-python` でシステム側に入るので、venv から
+見えるように `--system-site-packages` を付けている。すでに付けずに作って
+しまった場合は、`.venv` を消して作り直す。
 
 ### 4. ログイン
 
@@ -165,6 +168,7 @@ Web 版（`spotify-display.service`）と同時に動かしても構わない。
 前に文字サイズやスクロール速度を詰めるのに使う。
 
 ```bash
+source .venv/bin/activate
 pip install -r led/requirements.txt
 
 # 固定の曲名で確認する（Spotify に繋がない）
@@ -256,6 +260,10 @@ blacklist を確認する。それでも残る場合は `LED_GPIO_SLOWDOWN` を�
 
 **何も映らない。** Bonnet の DC ジャック横の緑 LED が点いているか見る。
 消えていれば AC アダプタが挿さっていないか、極性が違う。
+
+**`ModuleNotFoundError: No module named 'PIL'`。** venv を有効にしていない。
+`source .venv/bin/activate` してから実行する。有効にしても出る場合は
+`pip install -r led/requirements.txt` がまだ。
 
 **`rgbmatrix が見つかりません`。** venv から見えていない。
 `--system-site-packages` を付けて venv を作り直す。
