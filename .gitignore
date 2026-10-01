@@ -12,3 +12,7 @@ __pycache__/
 
 # Claude Code
 .claude/
+
+# プレビューの出力
+out.gif
+*.gif
