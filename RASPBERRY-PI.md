@@ -132,9 +132,21 @@ journalctl -u spotify-display -f
 [Desktop Entry]
 Type=Application
 Name=Spotify Display
-Exec=chromium-browser --kiosk --noerrdialogs --disable-infobars --force-device-scale-factor=1.2 --check-for-update-interval=31536000 http://127.0.0.1:5000
+Exec=chromium --kiosk --password-store=basic --touch-events=enabled --noerrdialogs --disable-infobars --force-device-scale-factor=1.0 --check-for-update-interval=31536000 http://127.0.0.1:5000
 X-GNOME-Autostart-enabled=true
 ```
+
+**コマンド名は `chromium`。** 以前は `chromium-browser` だったが、現在の
+Raspberry Pi OS には存在しない。存在しないコマンドを書いても何も起きず、
+エラーも出ないまま画面が出ないだけなので、気づきにくい。迷ったら確認する。
+
+```bash
+which chromium chromium-browser
+```
+
+`--password-store=basic` が無いと、初回起動時に GNOME Keyring が
+「Choose Password for new keyring」のダイアログを出して止まる。kiosk では
+キーリングを使わないので、最初から無効にしておく。
 
 マウスカーソルを消したい場合は `unclutter` を入れる。
 
@@ -240,6 +252,76 @@ Pi 自身を Spotify Connect の受信側にすると、この問題がなくな
 - Spotify Premium が必要
 - Pi に音声出力（HDMI 音声、イヤホンジャック、USB DAC 等）とスピーカーが必要
 - librespot は解析により実装された非公式クライアントであり、作者自身が Spotify に禁止されている可能性が高いと明記している。個人の私的利用に限ること。公開の場や商用での使用は想定されていない
+
+---
+
+## 6. バックアップと復旧
+
+**動いた時点で必ずイメージを取る。** SD カードは消耗品で、ある日突然読めなく
+なる。セットアップをやり直すより、書き戻すほうが圧倒的に速い。
+
+### 吸い出す
+
+Pi の電源を落とし、カードを Mac に挿してから。
+
+```bash
+diskutil list
+```
+
+容量とパーティション構成（`bootfs` + `Linux`）でカードを見分ける。**番号は
+挿すたびに変わりうるので毎回確認する。** 間違えると別のディスクを読むことに
+なる。
+
+```bash
+diskutil unmountDisk /dev/disk4                                  # 番号は上で確認した値
+sudo dd if=/dev/rdisk4 of=/Users/nao/displaypi-backup.img bs=4m
+```
+
+30 GB で 15〜40 分かかる。進捗は `Ctrl+T` で確認できる。
+
+はまりやすい点が2つある。
+
+- **`sudo` を付けると `~` が展開されない。** `of=~/backup.img` は
+  `No such file or directory` になる。`/Users/<名前>/` と書く
+- **macOS の `dd` は `status=progress` に対応していない。** Linux の記事を
+  そのまま真似ると失敗する
+
+`rdisk`（`r` 付き）を使うのは、そのほうが速いため。
+
+### 書き戻す
+
+```bash
+diskutil list
+diskutil unmountDisk /dev/disk4
+sudo dd if=/Users/nao/displaypi-backup.img of=/dev/rdisk4 bs=4m
+```
+
+吸い出しと `if` / `of` が逆になる。**ここを間違えると、バックアップが空の
+カードで上書きされて消える。**
+
+### 保管しているイメージ
+
+| ファイル | 時点 |
+|---|---|
+| `~/displaypi-backup.img` | OS・ディスプレイ・アプリ・自動起動まで |
+| `~/displaypi-backup-2.img` | 上記＋テザリング設定、kiosk の調整済み |
+
+新しいほうが完成形。**復旧には `-2` を使う。**
+
+### 起動しなくなったとき
+
+緑の LED の点滅回数がエラーコードになっている。**数えてから原因を考える。**
+
+| 点滅 | 意味 |
+|---|---|
+| 3回 | `start.elf` が無い |
+| 4回 | `start.elf` が壊れている |
+| 7回 | カーネルが無い |
+| 8回 | RAM を認識できない |
+
+3・4・7 はいずれも SD カード側の問題。**一度は起動したのに次から起動しない、
+という挙動はカードの故障を強く疑う。** ディスプレイや電源を疑って時間を使う
+前に、まず点滅を数えること。
 
 ---
 
