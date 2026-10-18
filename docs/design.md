@@ -247,55 +247,20 @@ python app.py
 
 ### Raspberry Pi へのデプロイ
 
-```bash
-# ファイル転送
-scp -r spotify-display pi@<IP>:/home/pi/
+実機の手順は [`../RASPBERRY-PI.md`](../RASPBERRY-PI.md) に分けた。ここに
+書いてあった手順は古くなっていたので、重複を避けて一本化している
+（`chromium-browser` は現在の Raspberry Pi OS には無く `chromium`、
+ユーザー名も `pi` 固定ではない）。
 
-# Pi 上でセットアップ
-sudo apt update && sudo apt install -y python3-venv chromium-browser
-cd ~/spotify-display
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-chmod 600 token_store.json  # セキュリティ設定
-python app.py
-```
-
-### kiosk モードで全画面表示
-
-```bash
-chromium-browser --kiosk --app=http://127.0.0.1:5000
-```
+LED マトリクス版は [`../led/README.md`](../led/README.md)。
 
 ---
 
 ## 13. 自動起動設定（systemd）
 
-`/etc/systemd/system/spotify-display.service`:
-
-```ini
-[Unit]
-Description=Spotify Display Flask App
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=pi
-WorkingDirectory=/home/pi/spotify-display
-Environment="PATH=/home/pi/spotify-display/.venv/bin"
-ExecStart=/home/pi/spotify-display/.venv/bin/python /home/pi/spotify-display/app.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable spotify-display
-sudo systemctl start spotify-display
-```
+[`../RASPBERRY-PI.md`](../RASPBERRY-PI.md) の「systemd で自動起動する」を
+参照。LED 版のユニットは [`../led/README.md`](../led/README.md) の
+「自動起動」にある。
 
 ---
 

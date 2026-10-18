@@ -101,17 +101,19 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/spotify-display
+User=naoaxaca
+WorkingDirectory=/home/naoaxaca/spotify-display
 Environment="FLASK_DEBUG=0"
 Environment="FLASK_HOST=127.0.0.1"
-ExecStart=/home/pi/spotify-display/.venv/bin/python /home/pi/spotify-display/app.py
+ExecStart=/home/naoaxaca/spotify-display/.venv/bin/python /home/naoaxaca/spotify-display/app.py
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+`User` とパスは実際のアカウント名に合わせる。既定の `pi` ではなく OS 書き込み時に決めた名前になっている。
 
 `WorkingDirectory` は必ず指定する。`token_store.json` を相対パスで読み書きしているため、これがないと別の場所を見に行く。
 
@@ -322,6 +324,41 @@ sudo dd if=/Users/nao/displaypi-backup.img of=/dev/rdisk4 bs=4m
 3・4・7 はいずれも SD カード側の問題。**一度は起動したのに次から起動しない、
 という挙動はカードの故障を強く疑う。** ディスプレイや電源を疑って時間を使う
 前に、まず点滅を数えること。
+
+### 点滅コードに当てはまらないのに起動しないとき
+
+一定のリズムで休みなく点滅している（まとまりが無く、回数を数えられない）
+場合はエラーコードではない。ここから先は点滅では分からないので、次の順に
+見る。
+
+**Ethernet ポートの LED が点いているか。** 点いていればカーネルが USB
+コントローラを認識しているので、OS 自体は起動している。消えていれば
+カードが読めていない可能性が高い。
+
+**それでもネットワークに出てこない場合。** cloud-init が走っていない。
+ユーザー作成・SSH 有効化・Wi-Fi 設定・`eth0` の DHCP はすべて cloud-init
+が初回起動時に適用するので、ここが動かないと一切繋がらない。
+
+`bootfs` の `user-data` / `network-config` を Mac で読んで内容が正しくても、
+rootfs 側が壊れていればこうなる。**Imager の「検証」を通っても起きる。**
+
+**切り分けは既知の正常なカードと入れ替える。**
+
+```bash
+# Mac から、同じセグメントを総なめして Pi の MAC を探す
+bash -c 'for i in $(seq 1 254); do ping -c1 -t1 192.168.3.$i >/dev/null 2>&1 & done; wait' 2>/dev/null
+arp -a | grep -i b8:27:eb        # b8:27:eb は Raspberry Pi 財団
+```
+
+正常なカードで起動すれば本体・周辺は無罪で、カードを書き直せば直る。
+MAC は本体のものなので、カードを変えても同じ値・同じ IP になる。
+
+`ping -W` は **macOS ではミリ秒、Linux では秒**。macOS で1秒待たせたい
+ときは `-t1` を使う。
+
+実際にこれで1枚つまずいた。書き込みと検証が正常終了したカードが、
+起動はするのに cloud-init に到達せず、ネットワークに一切出てこなかった。
+同じカードに書き直したら直った。
 
 ---
 

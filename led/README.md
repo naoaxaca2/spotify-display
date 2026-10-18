@@ -45,30 +45,95 @@ Bonnet の 16ピン IDC ヘッダとパネルの HUB75 コネクタを繋ぐ。
 
 64×32 のパネルなら、Bonnet 側のはんだ付けは不要。
 
+**実機で確認した構成**: Raspberry Pi 3B + Raspberry Pi OS Lite 64-bit
+(Debian 13 trixie) + Waveshare 64×32 P3 パネル + Bonnet。
+
 ---
 
 ## セットアップ
 
-### 1. パネル駆動ライブラリ
+LED 版はブラウザを使わないので、専用機なら Raspberry Pi OS Lite でよい。
+以下は Lite を入れた直後の状態から始める。
 
-[rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix) を入れる。
+### 1. パッケージ
 
 ```bash
 sudo apt update
-sudo apt install -y python3-dev python3-pillow git
-git clone https://github.com/hzeller/rpi-rgb-led-matrix.git
-cd rpi-rgb-led-matrix
-make build-python PYTHON=$(which python3)
-sudo make install-python PYTHON=$(which python3)
+sudo apt install -y git python3-dev python3-venv python3-pip \
+                    cython3 build-essential cmake ninja-build \
+                    fonts-noto-cjk
 ```
 
-**オンボードの音声出力を無効化する。** このライブラリは音声と同じ
-ハードウェアを使うため、有効なままだと表示がちらつく。
+`cmake` と `ninja-build` はパネル駆動ライブラリのビルドに使う。
+`fonts-noto-cjk` は 300MB 近くあるので時間がかかる。別のフォントを
+使いたい場合は入れずに `LED_FONT_PATH` を指定してもよい。
+
+### 2. アプリと venv
+
+Web 版と同じリポジトリ。すでに clone してあるならそのまま使える。
+`led/requirements.txt` はルートの `requirements.txt` を取り込んだうえで
+Pillow を足すだけなので、これ1本で両方の依存が揃う。
+
+```bash
+cd ~
+git clone https://github.com/naoaxaca2/spotify-display.git
+cd spotify-display
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r led/requirements.txt
+```
+
+**`source .venv/bin/activate` を忘れると `ModuleNotFoundError: No module
+named 'PIL'` になる。** システムの python3 には Pillow が入っていない。
+
+### 3. パネル駆動ライブラリ
+
+[rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix) を、
+**手順 2 で作った venv の中に**入れる。
+
+```bash
+cd ~
+git clone https://github.com/hzeller/rpi-rgb-led-matrix.git
+cd ~/spotify-display
+source .venv/bin/activate
+pip install ~/rpi-rgb-led-matrix
+```
+
+C++ を CMake でビルドするので、Pi 3B では5〜10分かかる。終わったら
+確認する。
+
+```bash
+python3 -c "import rgbmatrix; print('OK')"
+```
+
+**上流のビルド方法が変わっている。** 以前は `make build-python` /
+`sudo make install-python` でシステム側に入れていたが、現在は
+`pyproject.toml`（scikit-build-core + Cython）による `pip install .` に
+置き換わった。古い手順を実行すると
+`make: *** No rule to make target 'build-python'` で止まる。
+
+venv の中に入れるので `--system-site-packages` は不要で、システム側の
+Python を触らないため `--break-system-packages` も要らない。
+
+配線の種類（Bonnet か否か）は実行時に `hardware_mapping` で渡すので、
+上流 README にある `lib/Makefile` の編集は不要。`led/config.py` が
+`adafruit-hat` を既定で渡している。
+
+### 4. オンボード音声を無効化する
+
+このライブラリは音声出力と同じハードウェアを使うため、有効なままだと
+表示がちらつく。
 
 ```bash
 echo "blacklist snd_bcm2835" | sudo tee /etc/modprobe.d/blacklist-rgb-matrix.conf
 sudo update-initramfs -u
 sudo reboot
+```
+
+再起動後、効いていることを確認する。何も出力されなければよい。
+
+```bash
+lsmod | grep snd_bcm2835
 ```
 
 Pi 自身を Spotify Connect の再生端末にする構成（`../RASPBERRY-PI.md` の
@@ -80,36 +145,23 @@ DSI ディスプレイと併用する場合も確認がいる。信号線はぶ�
 受ける作りのものがあり、Bonnet と同じヘッダを取り合う。`../RASPBERRY-PI.md`
 の「ディスプレイを繋ぐ」を参照。
 
-### 2. 日本語フォント
+### 5. 認証情報
 
-```bash
-sudo apt install -y fonts-noto-cjk
+リポジトリ直下に `.env` を置く。Client ID と Secret は Spotify Developer
+Dashboard のアプリのもので、**液晶版と同じ値でよい**。これはアプリを識別する
+もので、端末ごとに分ける必要はない。
+
+```
+SPOTIFY_CLIENT_ID=...
+SPOTIFY_CLIENT_SECRET=...
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:5000/callback
+FLASK_SECRET_KEY=...
 ```
 
-別のフォントを使いたい場合は `LED_FONT_PATH` にフルパスを指定する。
+`FLASK_SECRET_KEY` は `python3 -c "import secrets; print(secrets.token_hex(32))"`
+で作れる。
 
-### 3. アプリ
-
-Web 版と同じリポジトリなので、すでに Pi に clone してあるならそのまま使える。
-venv も Web 版と共用でよい。`led/requirements.txt` はルートの
-`requirements.txt` を取り込んだうえで Pillow を足すだけなので、これ1本で
-両方の依存が揃う。
-
-```bash
-cd ~/spotify-display
-python3 -m venv --system-site-packages .venv    # 既にあるなら飛ばす
-source .venv/bin/activate
-pip install -r led/requirements.txt
-```
-
-**`source .venv/bin/activate` を忘れると `ModuleNotFoundError: No module
-named 'PIL'` になる。** システムの python3 には Pillow が入っていないため。
-
-`rgbmatrix` は `sudo make install-python` でシステム側に入るので、venv から
-見えるように `--system-site-packages` を付けている。すでに付けずに作って
-しまった場合は、`.venv` を消して作り直す。
-
-### 4. ログイン
+### 6. ログイン
 
 **LED 版に認証画面は無い。** リポジトリ直下の `.env` と `token_store.json` を
 Web 版と共用する。Web 版（`app.py`）で一度ログインして `token_store.json` を
@@ -127,13 +179,12 @@ python3 app.py     # ブラウザで http://127.0.0.1:5000 を開いてログイ
 
 #### ヘッドレスの場合（LED 専用機）
 
-LED 版はブラウザを使わないので、専用機は Raspberry Pi OS Lite で構わない。
-ただしログインの一度だけはブラウザが要る。**手元の PC から SSH ポート
-フォワードでトンネルを掘る。**
+Lite にはブラウザが無いので、**手元の PC から SSH ポートフォワードで
+トンネルを掘る。**
 
 ```bash
 # 手元の PC から
-ssh -L 5000:localhost:5000 pi@ledpi.local
+ssh -L 5000:localhost:5000 naoaxaca@ledpi.local
 ```
 
 繋がったら、その SSH 先（Pi 側）でアプリを起動する。
@@ -164,9 +215,14 @@ python3 app.py
 すると、もう片方の持っている分が無効になる。2台が交互に相手を無効化し合う
 状態になり、どちらも繰り返し再ログインが必要になる。
 
-### 5. 起動
+`.env`（Client ID / Secret）は逆に共用してよい。
+
+### 7. 起動
+
+パネルの電源が入っていることを確認してから実行する。
 
 ```bash
+cd ~/spotify-display
 sudo .venv/bin/python led/main.py
 ```
 
@@ -176,7 +232,8 @@ sudo .venv/bin/python led/main.py
 
 ## 自動起動
 
-`/etc/systemd/system/spotify-led.service` を作る。
+`/etc/systemd/system/spotify-led.service` を作る。パスはユーザー名に
+合わせて書き換える。
 
 ```ini
 [Unit]
@@ -187,8 +244,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/pi/spotify-display
-ExecStart=/home/pi/spotify-display/.venv/bin/python /home/pi/spotify-display/led/main.py
+WorkingDirectory=/home/naoaxaca/spotify-display
+ExecStart=/home/naoaxaca/spotify-display/.venv/bin/python /home/naoaxaca/spotify-display/led/main.py
 Restart=on-failure
 RestartSec=5
 
@@ -207,6 +264,18 @@ journalctl -u spotify-led -f
 
 Web 版（`spotify-display.service`）と同時に動かしても構わない。トークンの
 更新が重なった場合は、片方がファイルを読み直して追従する。
+
+### 電源を落とす
+
+```bash
+ssh naoaxaca@ledpi.local
+sudo shutdown -h now
+```
+
+サービスが動いている最中でも構わない。systemd が停止信号を送ってから
+アンマウントに進むし、このアプリが書くのは `token_store.json` だけで、
+一時ファイルに書いてから置き換える作り（`save_tokens`）になっている。
+緑の ACT LED が消えてから電源を抜く。
 
 ---
 
@@ -232,6 +301,8 @@ python3 led/main.py --preview out.gif --seconds 12
 | `--demo` | — | Spotify に繋がず、固定の曲名を順に出す |
 | `--seconds N` | 10 | 記録する秒数 |
 | `--scale N` | 8 | 拡大率 |
+
+この用途なら `rgbmatrix` は要らない（`panel.py` が遅延 import している）。
 
 ---
 
@@ -303,7 +374,10 @@ Web 版の `source.js` が取得元の差を吸収しているのと同じ考え
 
 ## うまくいかないとき
 
-**表示がちらつく。** オンボード音声が無効になっていない。セットアップ 1 の
+**`make: *** No rule to make target 'build-python'`。** 上流がビルド方法を
+変えた。`make` ではなく `pip install ~/rpi-rgb-led-matrix`（セットアップ 3）。
+
+**表示がちらつく。** オンボード音声が無効になっていない。セットアップ 4 の
 blacklist を確認する。それでも残る場合は `LED_GPIO_SLOWDOWN` を上げる。
 
 **何も映らない。** Bonnet の DC ジャック横の緑 LED が点いているか見る。
@@ -313,8 +387,15 @@ blacklist を確認する。それでも残る場合は `LED_GPIO_SLOWDOWN` を�
 `source .venv/bin/activate` してから実行する。有効にしても出る場合は
 `pip install -r led/requirements.txt` がまだ。
 
-**`rgbmatrix が見つかりません`。** venv から見えていない。
-`--system-site-packages` を付けて venv を作り直す。
+**`ModuleNotFoundError: No module named 'rgbmatrix'`。** venv の中に入って
+いない。`source .venv/bin/activate` したうえで
+`pip install ~/rpi-rgb-led-matrix` を実行する。systemd 経由なら
+`ExecStart` が venv の python を指しているか確認する。
+
+**`日本語フォントが見つかりません`。** `fonts-noto-cjk` が入っていないか、
+ファイル名が `led/config.py` の候補と違う。
+`ls /usr/share/fonts/opentype/noto/ | grep -i cjk` で実際の名前を見て、
+`LED_FONT_PATH` にフルパスを指定する。
 
 **`未ログイン` のまま。** リポジトリ直下に `token_store.json` があるか確認する。
 無ければ Web 版でログインする。あるのに直らない場合はリフレッシュトークンが
